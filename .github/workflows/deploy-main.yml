@@ -27,14 +27,6 @@ jobs:
             StrictHostKeyChecking no
           END
 
-      - name: Stop running containers
-        run: |
-          ssh dialog-server 'cd /opt/dialog && docker-compose down || true'
-
-      - name: Clean up old files
-        run: |
-          ssh dialog-server 'sudo rm -rf /opt/dialog/*'
-
       - name: Copy project files to EC2
         run: |
           ssh dialog-server 'sudo mkdir -p /opt/dialog'
@@ -67,10 +59,31 @@ jobs:
           JWT_SECRET=${{ secrets.JWT_SECRET }}
           EOF'
 
-      - name: Deploy with Docker Compose
+      - name: Deploy with Zero Downtime
         run: |
-          ssh dialog-server 'cd /opt/dialog && docker-compose up -d --build'
-
+          ssh dialog-server '
+            cd /opt/dialog
+            
+            echo "Building and updating Redis..."
+            docker-compose up -d redis
+            sleep 3
+            
+            echo "Building and updating frontend..."
+            docker-compose up -d --build --no-deps frontend
+            sleep 5
+            
+            echo "Building and updating AI server..."
+            docker-compose up -d --build --no-deps ai-server
+            sleep 5
+            
+            echo "Building and updating backend..."
+            docker-compose up -d --build --no-deps backend
+            sleep 5
+            
+            echo "All services updated!"
+            docker-compose ps
+          '
+          
       - name: Check container status
         run: |
           ssh dialog-server 'docker ps'
