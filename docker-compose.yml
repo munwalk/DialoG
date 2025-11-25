@@ -70,7 +70,6 @@ services:
       - APP_OAUTH2_FAIL_URI=http://localhost:5500/login.html
       - APP_RESET_PASSWORD_URL=http://localhost:5500/resetPassword
       - FRONTEND_URL=http://localhost:5500
-      - FASTAPI_BASE_URL=http://dialog-ai:8000
 
       - JWT_SECRET=${JWT_SECRET}
       - JWT_EXPIRATION=3600000
