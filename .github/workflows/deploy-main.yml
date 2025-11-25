@@ -1,0 +1,84 @@
+name: Deploy DialoG to Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          cat >>~/.ssh/config <<END
+          Host dialog-server
+            HostName ${{ secrets.EC2_HOST }}
+            User ubuntu
+            IdentityFile ~/.ssh/id_rsa
+            StrictHostKeyChecking no
+          END
+
+      - name: Stop running containers
+        run: |
+          ssh dialog-server 'cd /opt/dialog && docker-compose down || true'
+
+      - name: Clean up old files
+        run: |
+          ssh dialog-server 'sudo rm -rf /opt/dialog/*'
+
+      - name: Copy project files to EC2
+        run: |
+          ssh dialog-server 'sudo mkdir -p /opt/dialog'
+          ssh dialog-server 'sudo chown ubuntu:ubuntu /opt/dialog'
+          scp -r ./* dialog-server:/opt/dialog/
+
+      - name: Create .env file on EC2
+        run: |
+          ssh dialog-server 'cat > /opt/dialog/.env << EOF
+          # AI Server DB
+          AI_DB_HOST=${{ secrets.AI_DB_HOST }}
+          AI_DB_PORT=${{ secrets.AI_DB_PORT }}
+          AI_DB_USER=${{ secrets.AI_DB_USER }}
+          AI_DB_PASSWORD=${{ secrets.AI_DB_PASSWORD }}
+          AI_DB_NAME=${{ secrets.AI_DB_NAME }}
+          AI_REDIS_HOST=redis
+          AI_REDIS_PORT=6379
+          
+          # OAuth
+          GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
+          KAKAO_CLIENT_ID=${{ secrets.KAKAO_CLIENT_ID }}
+          KAKAO_CLIENT_SECRET=${{ secrets.KAKAO_CLIENT_SECRET }}
+          
+          # Email
+          MAIL_USERNAME=${{ secrets.MAIL_USERNAME }}
+          MAIL_PASSWORD=${{ secrets.MAIL_PASSWORD }}
+          
+          # JWT
+          JWT_SECRET=${{ secrets.JWT_SECRET }}
+          EOF'
+
+      - name: Deploy with Docker Compose
+        run: |
+          ssh dialog-server 'cd /opt/dialog && docker-compose up -d --build'
+
+      - name: Check container status
+        run: |
+          ssh dialog-server 'docker ps'
+          
+      - name: Show recent logs
+        run: |
+          ssh dialog-server 'cd /opt/dialog && docker-compose logs --tail=50'
+
+      - name: Clean up old Docker images
+        run: |
+          ssh dialog-server 'docker image prune -af'
